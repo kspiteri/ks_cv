@@ -1,0 +1,64 @@
+/* Disable all motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Scroll-driven reveal — progressive enhancement */
+@supports (animation-timeline: scroll()) {
+  .reveal {
+    animation: reveal-fade linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 30%;
+  }
+
+  .timeline-item {
+    animation: reveal-fade linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 40%;
+  }
+
+  .project-card {
+    animation: reveal-fade linear both;
+    animation-timeline: view();
+    animation-range: entry 0% entry 25%;
+  }
+
+  @keyframes reveal-fade {
+    from {
+      opacity: 0;
+      translate: 0 1.5rem;
+    }
+    to {
+      opacity: 1;
+      translate: 0 0;
+    }
+  }
+}
+
+/* View Transitions */
+::view-transition-old(root) {
+  animation: vt-fade-out 200ms ease forwards;
+}
+
+::view-transition-new(root) {
+  animation: vt-fade-in 200ms ease forwards;
+}
+
+@keyframes vt-fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+@keyframes vt-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.hero__name    { view-transition-name: hero-name; }
+.hero__avatar  { view-transition-name: hero-avatar; }

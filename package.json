@@ -1,0 +1,23 @@
+{
+  "name": "ks_cv",
+  "version": "0.0.1",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "sync": "tsx scripts/sync.ts",
+    "sync:dry": "tsx scripts/sync.ts --dry-run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@octokit/graphql": "^8.1.1",
+    "@types/node": "^22.10.0",
+    "dotenv": "^16.4.7",
+    "playwright": "^1.49.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}

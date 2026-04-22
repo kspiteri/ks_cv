@@ -1,0 +1,93 @@
+.section--projects {
+  container-type: inline-size;
+}
+
+.projects__grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-md);
+}
+
+@container (min-width: 560px) {
+  .projects__grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.project-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  color: inherit;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast), border-color var(--transition-fast);
+}
+
+.project-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px var(--color-shadow);
+  border-color: var(--color-accent);
+}
+
+.project-card__name {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-accent);
+}
+
+.project-card__description {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  flex: 1;
+}
+
+.project-card__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-top: auto;
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.project-card__lang {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.project-card__lang-dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 50%;
+  background-color: var(--lang-color, var(--color-text-muted));
+}
+
+.project-card__stat {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.project-card__topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.project-card__topic {
+  font-size: 0.75rem;
+  padding: 2px var(--space-sm);
+  background-color: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+  border-radius: 100px;
+}

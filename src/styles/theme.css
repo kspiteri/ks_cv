@@ -1,0 +1,72 @@
+/* Light theme (default) */
+:root {
+  --color-bg: #ffffff;
+  --color-surface: #f6f7f9;
+  --color-surface-hover: #eef0f3;
+  --color-text: #111111;
+  --color-text-muted: #5a6270;
+  --color-accent: #0066cc;
+  --color-accent-hover: #0052a3;
+  --color-border: #dde1e7;
+  --color-shadow: rgba(0, 0, 0, 0.07);
+
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 2rem;
+  --space-xl: 4rem;
+
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.75rem;
+  --font-size-hero: clamp(2.5rem, 5vw, 3.75rem);
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+
+  --transition-fast: 150ms ease;
+  --transition-base: 250ms ease;
+}
+
+/* Dark tokens applied via system preference (no-JS fallback) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #0f1117;
+    --color-surface: #1a1d26;
+    --color-surface-hover: #23273a;
+    --color-text: #e8eaf0;
+    --color-text-muted: #8892a4;
+    --color-accent: #4d9eff;
+    --color-accent-hover: #79b8ff;
+    --color-border: #2a2f3e;
+    --color-shadow: rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* JS-controlled — always wins over media query */
+[data-theme='light'] {
+  --color-bg: #ffffff;
+  --color-surface: #f6f7f9;
+  --color-surface-hover: #eef0f3;
+  --color-text: #111111;
+  --color-text-muted: #5a6270;
+  --color-accent: #0066cc;
+  --color-accent-hover: #0052a3;
+  --color-border: #dde1e7;
+  --color-shadow: rgba(0, 0, 0, 0.07);
+}
+
+[data-theme='dark'] {
+  --color-bg: #0f1117;
+  --color-surface: #1a1d26;
+  --color-surface-hover: #23273a;
+  --color-text: #e8eaf0;
+  --color-text-muted: #8892a4;
+  --color-accent: #4d9eff;
+  --color-accent-hover: #79b8ff;
+  --color-border: #2a2f3e;
+  --color-shadow: rgba(0, 0, 0, 0.3);
+}

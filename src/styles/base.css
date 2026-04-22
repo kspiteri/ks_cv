@@ -1,0 +1,146 @@
+@import './theme.css';
+@import './animations.css';
+@import './sections/hero.css';
+@import './sections/experience.css';
+@import './sections/projects.css';
+@import './sections/skills.css';
+@import './sections/education.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  transition: background-color var(--transition-base), color var(--transition-base);
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+a:hover {
+  color: var(--color-accent-hover);
+}
+
+a:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* Skip link */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: var(--space-md);
+  background: var(--color-accent);
+  color: #fff;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  z-index: 1000;
+}
+
+.skip-link:focus {
+  top: var(--space-sm);
+}
+
+/* Site header */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-lg);
+  background-color: color-mix(in srgb, var(--color-bg) 85%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.section-nav {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.section-nav a {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  text-decoration: none;
+  color: var(--color-text-muted);
+  transition: color var(--transition-fast);
+}
+
+.section-nav a:hover {
+  color: var(--color-text);
+}
+
+/* Theme toggle */
+#theme-toggle {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-sm);
+  cursor: pointer;
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  line-height: 1;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+
+#theme-toggle:hover {
+  background-color: var(--color-surface);
+}
+
+#theme-toggle:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Sections */
+.section {
+  padding-block: var(--space-xl);
+  padding-inline: var(--space-lg);
+  max-width: 900px;
+  margin-inline: auto;
+  scroll-margin-top: 5rem;
+}
+
+.section__title {
+  font-size: var(--font-size-2xl);
+  font-weight: 700;
+  margin-bottom: var(--space-lg);
+  color: var(--color-text);
+}
+
+/* Footer */
+.site-footer {
+  text-align: center;
+  padding: var(--space-lg);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  border-top: 1px solid var(--color-border);
+}
