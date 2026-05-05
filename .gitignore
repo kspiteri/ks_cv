@@ -7,7 +7,7 @@ dist/
 # Vite cache
 .vite/
 
-# Generated CV data — real data stays local
+# Generated CV data — run pnpm sync to regenerate
 src/data/cv.json
 
 # Environment

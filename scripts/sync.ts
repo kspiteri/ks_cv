@@ -1,15 +1,16 @@
-import { chromium } from 'playwright'
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { graphql } from '@octokit/graphql'
-import { writeFileSync, existsSync, readFileSync } from 'fs'
+import { readFileSync, writeFileSync } from 'fs'
 import { config as loadEnv } from 'dotenv'
 import type { CVData, Profile, Experience, Education, Skill, Language, Project } from '../src/ts/types'
-import type { BrowserContext } from 'playwright'
+import { featuredRepos } from './projects.config'
 
-loadEnv()
+loadEnv({ path: '.env.local' })
 
-const SESSION_FILE = '.playwright-session.json'
+const PDF_PATH = 'assets/Profile.pdf'
 const OUT_FILE = 'src/data/cv.json'
 const DRY_RUN = process.argv.includes('--dry-run')
+const SKIP_GITHUB = process.argv.includes('--skip-github')
 
 function requireEnv(key: string): string {
   const val = process.env[key]
@@ -17,228 +18,181 @@ function requireEnv(key: string): string {
   return val
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((res) => setTimeout(res, ms))
-}
+// LinkedIn PDF exports dates like "January 2023 - Present (3 years 4 months)"
+// or "January 2018 - January 2020 (2 years 1 month)"
+function parseDateRange(raw: string): { startDate: string; endDate: string | null } {
+  const match = raw.match(/^([A-Za-z]+ \d{4})\s*-\s*(.+?)(?:\s*\(.*\))?$/)
+  if (!match) return { startDate: '', endDate: null }
 
-function randomDelay(minMs = 800, maxMs = 2500): Promise<void> {
-  return delay(minMs + Math.random() * (maxMs - minMs))
-}
-
-async function createContext(): Promise<BrowserContext> {
-  const browser = await chromium.launch({ headless: true })
-  const storageState = existsSync(SESSION_FILE)
-    ? (JSON.parse(readFileSync(SESSION_FILE, 'utf-8')) as Parameters<typeof browser.newContext>[0] extends { storageState?: infer S } ? S : never)
-    : undefined
-
-  const context = await browser.newContext({
-    userAgent:
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    viewport: { width: 1280, height: 800 },
-    storageState,
-  })
-
-  return context
-}
-
-async function ensureLoggedIn(context: BrowserContext): Promise<void> {
-  const page = await context.newPage()
-  await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded' })
-
-  const isLoggedIn = await page.locator('[data-test-global-nav-me-trigger]').isVisible().catch(() => false)
-
-  if (!isLoggedIn) {
-    console.log('Session expired or missing — logging in...')
-    await page.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded' })
-    await page.fill('#username', requireEnv('LINKEDIN_EMAIL'))
-    await page.fill('#password', requireEnv('LINKEDIN_PASSWORD'))
-    await randomDelay()
-    await page.click('[type="submit"]')
-    await page.waitForURL('**/feed/**', { timeout: 15000 }).catch(() => {
-      throw new Error('LinkedIn login failed — check credentials or 2FA challenge')
-    })
-    await context.storageState({ path: SESSION_FILE })
-    console.log(`Session saved to ${SESSION_FILE}`)
+  const toYYYYMM = (s: string): string => {
+    if (s.trim().toLowerCase() === 'present') return ''
+    const d = new Date(s.trim())
+    if (isNaN(d.getTime())) return ''
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   }
 
-  await page.close()
+  const startDate = toYYYYMM(match[1] ?? '')
+  const endRaw = match[2]?.trim() ?? ''
+  const endDate = endRaw.toLowerCase() === 'present' ? null : toYYYYMM(endRaw)
+
+  return { startDate, endDate }
 }
 
-async function scrapeLinkedIn(context: BrowserContext): Promise<{
+function parsePDF(text: string): {
   profile: Profile
   experience: Experience[]
   education: Education[]
   skills: Skill[]
   languages: Language[]
-}> {
-  const profileUrl = requireEnv('LINKEDIN_PROFILE_URL').replace(/\/$/, '')
-  const page = await context.newPage()
+} {
+  // pdfjs splits "Page 1 of 4" into 4 tokens — collapse before filtering
+  const raw = text.split('\n').map(l => l.trim()).filter(Boolean)
+  const lines: string[] = []
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] === 'Page' && raw[i + 2] === 'of') {
+      i += 3
+    } else {
+      lines.push(raw[i] ?? '')
+    }
+  }
 
-  await page.goto(profileUrl, { waitUntil: 'domcontentloaded' })
-  await randomDelay()
+  const isDateRange = (l: string) => /^[A-Za-z]+ \d{4} - /.test(l)
+  const isDuration  = (l: string) => /^\(\d+/.test(l)
 
-  // Scroll to trigger lazy loading
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight / 2))
-  await randomDelay(500, 1000)
-  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
-  await randomDelay()
+  const expIdx     = lines.indexOf('Experience')
+  const eduIdx     = lines.indexOf('Education')
+  const skillsIdx  = lines.indexOf('Top Skills')
+  const langIdx    = lines.indexOf('Languages')
+  const certIdx    = lines.indexOf('Certifications')
+  const summaryIdx = lines.indexOf('Summary')
 
-  const name = await page.locator('h1').first().textContent().then((t) => t?.trim() ?? '')
-  const headline = await page
-    .locator('[data-generated-suggestion-target], .text-body-medium.break-words')
-    .first()
-    .textContent()
-    .then((t) => t?.trim() ?? '')
-    .catch(() => '')
-  const location = await page
-    .locator('.text-body-small.inline.t-black--light.break-words')
-    .first()
-    .textContent()
-    .then((t) => t?.trim() ?? '')
-    .catch(() => '')
-  const summary = await page
-    .locator('[data-generated-suggestion-target] + div, .pv-shared-text-with-see-more span')
-    .first()
-    .textContent()
-    .then((t) => t?.trim() ?? '')
-    .catch(() => '')
-  const avatarUrl = await page
-    .locator('img.profile-photo-edit__preview, .pv-top-card-profile-picture__image')
-    .first()
-    .getAttribute('src')
-    .catch(() => '')
+  // --- Profile ---
+  // In LinkedIn PDF exports: Summary is always preceded by location, headline, name (3 lines back)
+  const nameIdx = summaryIdx !== -1 ? summaryIdx - 3 : -1
+
+  const linkedinRaw = lines.find(l => l.includes('linkedin.com/in/')) ?? ''
+  const linkedinSlug = linkedinRaw.replace(/.*linkedin\.com\/in\/([\w-]+).*/, '$1').replace(/-+$/, '')
 
   const profile: Profile = {
-    name,
-    headline,
-    summary,
-    location,
-    email: process.env['LINKEDIN_EMAIL'] ?? '',
-    linkedinUrl: profileUrl,
+    name:     nameIdx !== -1 ? lines[nameIdx] ?? ''     : '',
+    headline: nameIdx !== -1 ? lines[nameIdx + 1] ?? '' : '',
+    location: nameIdx !== -1 ? lines[nameIdx + 2] ?? '' : '',
+    summary:  summaryIdx !== -1 && expIdx !== -1
+      ? lines.slice(summaryIdx + 1, expIdx).join(' ')
+      : '',
+    email:       lines.find(l => /^[\w.+-]+@[\w-]+\.\w+$/.test(l)) ?? '',
+    linkedinUrl: linkedinSlug ? `https://www.linkedin.com/in/${linkedinSlug}/` : '',
     githubUsername: requireEnv('GITHUB_USERNAME'),
-    avatarUrl: avatarUrl ?? '',
+    avatarUrl: '',
   }
 
   // --- Experience ---
-  await page.goto(`${profileUrl}/details/experience/`, { waitUntil: 'domcontentloaded' })
-  await randomDelay()
-
+  // Per entry: company, title, date-range, duration (skip), location, ...desc
   const experience: Experience[] = []
-  const expItems = await page.locator('li.pvs-list__paged-list-item').all()
 
-  for (const item of expItems) {
-    const title = await item.locator('div[aria-hidden="true"] span').nth(0).textContent().then((t) => t?.trim() ?? '').catch(() => '')
-    const company = await item.locator('div[aria-hidden="true"] span').nth(1).textContent().then((t) => t?.trim() ?? '').catch(() => '')
-    const dateRange = await item.locator('.pvs-entity__caption-wrapper, t-14.t-normal.t-black--light').first().textContent().then((t) => t?.trim() ?? '').catch(() => '')
-    const location = await item.locator('span').filter({ hasText: /Remote|Hybrid|On-site|Oslo|London/ }).first().textContent().then((t) => t?.trim() ?? '').catch(() => '')
-    const description = await item.locator('.pvs-list__outer-container, .pv-shared-text-with-see-more').first().textContent().then((t) => t?.trim() ?? '').catch(() => '')
+  if (expIdx !== -1 && eduIdx !== -1) {
+    const expLines = lines.slice(expIdx + 1, eduIdx)
+    let i = 0
 
-    if (!title || !company) continue
+    while (i < expLines.length) {
+      const dateIdx = expLines.findIndex((l, idx) => idx >= i && isDateRange(l))
+      if (dateIdx === -1 || dateIdx < 2) break
 
-    const [startRaw, endRaw] = dateRange.split('–').map((s) => s.trim())
-    const parseDate = (raw: string | undefined): string => {
-      if (!raw) return ''
-      const match = raw.match(/(\w+ \d{4})/)
-      if (!match?.[1]) return raw
-      const d = new Date(match[1])
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const company  = expLines[dateIdx - 2] ?? ''
+      const title    = expLines[dateIdx - 1] ?? ''
+      const dateStr  = expLines[dateIdx] ?? ''
+      const afterDate = dateIdx + 1
+      // Skip duration "(N months)" if present
+      const locOffset = isDuration(expLines[afterDate] ?? '') ? afterDate + 1 : afterDate
+      const location  = expLines[locOffset] ?? ''
+
+      const nextDateIdx = expLines.findIndex((l, idx) => idx > dateIdx && isDateRange(l))
+      const descEnd = nextDateIdx !== -1 ? nextDateIdx - 2 : expLines.length
+      const description = expLines.slice(locOffset + 1, descEnd).join(' ')
+
+      const { startDate, endDate } = parseDateRange(dateStr)
+
+      if (company && title && startDate) {
+        experience.push({
+          id: `${company.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${startDate}`,
+          company, title, location, startDate, endDate, description, logoUrl: null,
+        })
+      }
+
+      if (nextDateIdx === -1) break
+      i = nextDateIdx - 2
     }
-
-    experience.push({
-      id: `${company.toLowerCase().replace(/\s+/g, '-')}-${parseDate(startRaw)}`,
-      company,
-      title,
-      location,
-      startDate: parseDate(startRaw) || '2020-01',
-      endDate: endRaw?.toLowerCase().includes('present') ? null : parseDate(endRaw) || null,
-      description,
-      logoUrl: null,
-    })
   }
 
   // --- Education ---
-  await page.goto(`${profileUrl}/details/education/`, { waitUntil: 'domcontentloaded' })
-  await randomDelay()
-
+  // Per entry: institution, degree+field, "· (YYYY - YYYY)" on its own line
   const education: Education[] = []
-  const eduItems = await page.locator('li.pvs-list__paged-list-item').all()
 
-  for (const item of eduItems) {
-    const institution = await item.locator('div[aria-hidden="true"] span').nth(0).textContent().then((t) => t?.trim() ?? '').catch(() => '')
-    const degreeField = await item.locator('div[aria-hidden="true"] span').nth(1).textContent().then((t) => t?.trim() ?? '').catch(() => '')
-    const dateRange = await item.locator('.pvs-entity__caption-wrapper').first().textContent().then((t) => t?.trim() ?? '').catch(() => '')
+  if (eduIdx !== -1) {
+    const eduLines = lines.slice(eduIdx + 1)
+    let i = 0
 
-    if (!institution) continue
+    while (i < eduLines.length) {
+      const institution = eduLines[i] ?? ''
+      const degreeField = eduLines[i + 1] ?? ''
+      const dateLine    = eduLines[i + 2] ?? ''
 
-    const parts = degreeField.split(',').map((s) => s.trim())
-    const degree = parts[0] ?? ''
-    const field = parts[1] ?? ''
-    const [startRaw, endRaw] = dateRange.split('–').map((s) => s.trim())
-    const parseYear = (raw: string | undefined): string => {
-      const match = raw?.match(/\d{4}/)
-      return match ? `${match[0]}-06` : ''
+      if (dateLine.startsWith('·')) {
+        const commaIdx = degreeField.indexOf(',')
+        const degree = commaIdx !== -1 ? degreeField.slice(0, commaIdx).trim() : degreeField
+        const field  = commaIdx !== -1 ? degreeField.slice(commaIdx + 1).trim() : ''
+        const dateMatch = dateLine.match(/\((\d{4})\s*-\s*(\d{4})\)/)
+
+        if (institution && degree && dateMatch) {
+          education.push({
+            id: `${institution.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${dateMatch[1]}-09`,
+            institution, degree, field,
+            startDate: `${dateMatch[1]}-09`,
+            endDate:   `${dateMatch[2]}-06`,
+            description: null,
+          })
+        }
+        i += 3
+      } else {
+        i++
+      }
     }
-
-    education.push({
-      id: `${institution.toLowerCase().replace(/\s+/g, '-')}-${parseYear(startRaw)}`,
-      institution,
-      degree,
-      field,
-      startDate: parseYear(startRaw) || '2015-09',
-      endDate: parseYear(endRaw) || null,
-      description: null,
-    })
   }
 
   // --- Skills ---
-  await page.goto(`${profileUrl}/details/skills/`, { waitUntil: 'domcontentloaded' })
-  await randomDelay()
-
   const skills: Skill[] = []
-  const skillItems = await page.locator('li.pvs-list__paged-list-item').all()
-
-  for (const item of skillItems) {
-    const skillName = await item.locator('div[aria-hidden="true"] span').first().textContent().then((t) => t?.trim() ?? '').catch(() => '')
-    const endorsementsText = await item.locator('span').filter({ hasText: /\d+ endorsement/ }).first().textContent().then((t) => t?.trim() ?? '').catch(() => '')
-    const endorsements = endorsementsText ? parseInt(endorsementsText.match(/\d+/)?.[0] ?? '0', 10) : null
-
-    if (skillName) {
-      skills.push({ name: skillName, category: null, endorsements })
+  if (skillsIdx !== -1 && langIdx !== -1) {
+    for (const l of lines.slice(skillsIdx + 1, langIdx)) {
+      skills.push({ name: l, category: null, endorsements: null })
     }
   }
 
   // --- Languages ---
-  await page.goto(`${profileUrl}/details/languages/`, { waitUntil: 'domcontentloaded' })
-  await randomDelay()
-
+  // pdfjs splits "Maltese (Native or Bilingual)" into "Maltese" + "(Native or Bilingual)"
   const languages: Language[] = []
-  const langItems = await page.locator('li.pvs-list__paged-list-item').all()
-
-  for (const item of langItems) {
-    const langName = await item.locator('div[aria-hidden="true"] span').nth(0).textContent().then((t) => t?.trim() ?? '').catch(() => '')
-    const proficiency = await item.locator('div[aria-hidden="true"] span').nth(1).textContent().then((t) => t?.trim() ?? '').catch(() => '')
-    if (langName) languages.push({ name: langName, proficiency })
+  if (langIdx !== -1) {
+    const langEnd = certIdx !== -1 ? certIdx : langIdx + 12
+    const langLines = lines.slice(langIdx + 1, langEnd)
+    for (let i = 0; i < langLines.length; i += 2) {
+      const name = langLines[i] ?? ''
+      const prof = (langLines[i + 1] ?? '').replace(/^\(|\)$/g, '')
+      if (name && prof) languages.push({ name, proficiency: prof })
+    }
   }
 
-  await page.close()
   return { profile, experience, education, skills, languages }
 }
 
 interface GitHubGraphQLResponse {
-  user: {
-    pinnedItems: {
-      nodes: Array<{
-        name: string
-        description: string | null
-        url: string
-        homepageUrl: string | null
-        stargazerCount: number
-        forkCount: number
-        primaryLanguage: { name: string } | null
-        repositoryTopics: { nodes: Array<{ topic: { name: string } }> }
-        updatedAt: string
-      }>
-    }
+  repository: {
+    name: string
+    description: string | null
+    url: string
+    stargazerCount: number
+    forkCount: number
+    primaryLanguage: { name: string } | null
+    repositoryTopics: { nodes: Array<{ topic: { name: string } }> }
+    updatedAt: string
   }
 }
 
@@ -246,61 +200,68 @@ async function fetchGitHub(): Promise<Project[]> {
   const username = requireEnv('GITHUB_USERNAME')
   const token = requireEnv('GITHUB_TOKEN')
 
-  const { user } = await graphql<GitHubGraphQLResponse>(
-    `query($login: String!) {
-      user(login: $login) {
-        pinnedItems(first: 6, types: REPOSITORY) {
-          nodes {
-            ... on Repository {
-              name
-              description
-              url
-              homepageUrl
-              stargazerCount
-              forkCount
-              primaryLanguage { name }
-              repositoryTopics(first: 5) { nodes { topic { name } } }
-              updatedAt
-            }
-          }
-        }
-      }
-    }`,
-    { login: username, headers: { authorization: `token ${token}` } },
-  )
+  const projects: Project[] = []
 
-  return user.pinnedItems.nodes.map((repo) => ({
-    name: repo.name,
-    description: repo.description ?? '',
-    url: repo.url,
-    homepageUrl: repo.homepageUrl ?? null,
-    stars: repo.stargazerCount,
-    forks: repo.forkCount,
-    primaryLanguage: repo.primaryLanguage?.name ?? null,
-    topics: repo.repositoryTopics.nodes.map((n) => n.topic.name),
-    updatedAt: repo.updatedAt,
-  }))
+  for (const { repo, homepageUrl } of featuredRepos) {
+    const { repository } = await graphql<GitHubGraphQLResponse>(
+      `query($owner: String!, $name: String!) {
+        repository(owner: $owner, name: $name) {
+          name
+          description
+          url
+          stargazerCount
+          forkCount
+          primaryLanguage { name }
+          repositoryTopics(first: 5) { nodes { topic { name } } }
+          updatedAt
+        }
+      }`,
+      { owner: username, name: repo, headers: { authorization: `token ${token}` } },
+    )
+
+    projects.push({
+      name: repository.name,
+      description: repository.description ?? '',
+      url: repository.url,
+      homepageUrl,
+      stars: repository.stargazerCount,
+      forks: repository.forkCount,
+      primaryLanguage: repository.primaryLanguage?.name ?? null,
+      topics: repository.repositoryTopics.nodes.map(n => n.topic.name),
+      updatedAt: repository.updatedAt,
+    })
+  }
+
+  return projects
 }
 
 async function main(): Promise<void> {
   console.log(`Running sync${DRY_RUN ? ' (dry run)' : ''}...`)
 
-  const context = await createContext()
-  await ensureLoggedIn(context)
+  const pdfBuffer = readFileSync(PDF_PATH)
+  const doc = await getDocument({ data: new Uint8Array(pdfBuffer) }).promise
+  const textChunks: string[] = []
+  for (let p = 1; p <= doc.numPages; p++) {
+    const page = await doc.getPage(p)
+    const content = await page.getTextContent()
+    const pageText = content.items.map((item) => ('str' in item ? item.str : '')).join('\n')
+    textChunks.push(pageText)
+  }
+  const rawText = textChunks.join('\n')
 
-  const [linkedInData, projects] = await Promise.all([
-    scrapeLinkedIn(context),
-    fetchGitHub(),
-  ])
-
-  await context.browser()?.close()
+  const { profile, experience, education, skills, languages } = parsePDF(rawText)
+  const projects = SKIP_GITHUB ? [] : await fetchGitHub()
 
   const cvData: CVData = {
     meta: {
       lastSynced: new Date().toISOString(),
-      sourceUrl: requireEnv('LINKEDIN_PROFILE_URL'),
+      sourceUrl: profile.linkedinUrl,
     },
-    ...linkedInData,
+    profile,
+    experience,
+    education,
+    skills,
+    languages,
     projects,
   }
 
@@ -312,7 +273,7 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
+main().catch(err => {
   console.error(err)
   process.exit(1)
 })

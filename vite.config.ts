@@ -7,11 +7,7 @@ const cvDataPlugin = {
   transformIndexHtml: {
     order: 'pre' as const,
     handler(html: string) {
-      // Paths relative to project root (vite root is src/, __dirname is project root)
-      const dataPath = fs.existsSync(resolve(__dirname, 'src/data/cv.json'))
-        ? resolve(__dirname, 'src/data/cv.json')
-        : resolve(__dirname, 'src/data/cv.stub.json')
-      const cvData = JSON.parse(fs.readFileSync(dataPath, 'utf-8'))
+      const cvData = JSON.parse(fs.readFileSync(resolve(__dirname, 'src/data/cv.json'), 'utf-8'))
       const tag = `<script id="cv-data" type="application/json">${JSON.stringify(cvData)}</script>`
       return html.replace('</head>', `${tag}\n</head>`)
     },
